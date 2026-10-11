@@ -3,12 +3,12 @@
 // 默认生成可在界面切换的链式分组；普通代理仍使用原始节点。
 // 不修改 DNS、TUN、端口、订阅地址或凭据。
 // US 按节点名称筛选，不检测实际出口国家，也不保证 AI 服务可用。
-// 主要使用 RULE-SET，GEOIP 补充国内 IP 兜底，最终使用 MATCH；远程规则集每天更新。
+// 主分流使用 GEOSITE / GEOIP；Geo 文件由客户端管理，不再逐项下载 HTTP 规则集。
 //
 // 文件结构：
 //   1. 常用设置      通常只需要改这一节
 //   2. 节点分组      代理组的结构与默认选项
-//   3. 规则          规则集和匹配顺序合在一张表里
+//   3. 规则          原生 GEOSITE / GEOIP 与少量域名例外
 //   4. 分组构建函数  统一默认参数
 //   5. 链式代理      生成前置 / 落地节点池
 //   6. DNS 规则集    保留现有 DNS 仍在引用的规则集
@@ -18,7 +18,6 @@
 // 1. 常用设置
 // ─────────────────────────────────────────────
 
-const RULE_UPDATE_INTERVAL = 86400; // 规则集更新间隔，单位为秒。
 const URL_TEST_TOLERANCE = 50; // 延迟差在 50 ms 内时，不频繁切换节点。
 
 const HEALTH_CHECK = {
@@ -72,7 +71,7 @@ const CHAIN_PROXY = {
   mode: "auto",
   front: { providers: [], nodes: [] },
   exit: { providers: [], nodes: [] },
-  // 下载节点和规则时，不依赖尚未建立的链路。也可填写一个未串联的静态节点名称。
+  // 仅控制节点订阅及 DNS 仍引用的旧规则集下载，不控制 Geo 文件更新。
   downloadProxy: "DIRECT",
 };
 
@@ -96,7 +95,7 @@ function chainAutomatic() {
   return CHAIN_PROXY.mode === "auto";
 }
 
-// 规则集下载走哪个代理：链式模式下不能依赖尚未建立的链路。
+// 仅用于 DNS 仍引用的旧 HTTP 规则集；主分流不再创建远程规则集。
 function downloadProxyName() {
   return chainEnabled() ? CHAIN_PROXY.downloadProxy : "PROXY";
 }
@@ -109,10 +108,11 @@ function createProxyGroups(chain) {
   const pool = chain ? chain.normalPool : undefined;
   const chainChoice = chain ? [CHAIN_GROUPS.exit] : [];
   const groups = [
-    // 总入口含全部节点；不加入 AI 分组，避免相互引用。
+    // 总入口只含原节点，链式落地通过“链式代理”统一进入，不逐个列出副本。
     selectGroup({
       name: "PROXY",
       proxies: ["自动选择", "US", "JP", "SG", "load-balance", ...chainChoice],
+      excludeFilter: NODE_FILTERS.exclude + "|^链式落地 \\| ",
       pool,
     }),
     // 地区组同时提供该地区的自动选择和单个节点。
@@ -143,214 +143,61 @@ function createProxyGroups(chain) {
 }
 
 // ─────────────────────────────────────────────
-// 3. 规则：每一项同时定义规则集和匹配目标，顺序就是匹配顺序
+// 3. 分流规则：使用客户端已有的完整 geosite.dat 和 GeoIP 数据
 // ─────────────────────────────────────────────
-// 先匹配的规则生效。没有 provider 的项表示复用前面已定义的同名规则集。
-// rule 字段用于不依赖远程规则集的内核规则。
-// MetaCubeX 使用 domain/ipcidr + mrs，Sukka 使用 classical + text。
+// 先匹配的规则生效；不再为主分流创建 HTTP rule-provider。
 
+function customDomainRules(domains, target) {
+  return domains.map(domain => domain.startsWith("+.")
+    ? "DOMAIN-SUFFIX," + domain.slice(2) + "," + target
+    : "DOMAIN," + domain + "," + target);
+}
 
-function createRuleSets() {
-  // 只有手动填入 CUSTOM_DOMAINS 的域名才会生成这些例外。
-  const custom = [["reject", "REJECT"], ["direct", "DIRECT"], ["proxy", "PROXY"]]
-    .filter(([kind]) => CUSTOM_DOMAINS[kind].length > 0)
-    .map(([kind, target]) => ({
-      name: "lean-custom-" + kind,
-      target,
-      provider: inlineDomainProvider(CUSTOM_DOMAINS[kind]),
-    }));
-
+function createRules() {
   return [
-    // 局域网及私有域名 / IP 网段。
-    {
-      name: "lean-private-domain",
-      target: "DIRECT",
-      provider: ruleProvider({
-        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/private.mrs",
-        path: "./ruleset/lean-ai/geosite-private.mrs",
-        behavior: "domain",
-      }),
-    },
-    {
-      name: "lean-private-ip",
-      target: "DIRECT",
-      noResolve: true,
-      provider: ruleProvider({
-        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geoip/private.mrs",
-        path: "./ruleset/lean-ai/geoip-private.mrs",
-        behavior: "ipcidr",
-      }),
-    },
+    "GEOSITE,private,DIRECT",
+    "GEOIP,private,DIRECT,no-resolve",
 
-    // 自定义例外优先于下面的外网服务规则，不会改变私有网络规则。
-    ...custom,
+    ...customDomainRules(CUSTOM_DOMAINS.reject, "REJECT"),
+    ...customDomainRules(CUSTOM_DOMAINS.direct, "DIRECT"),
+    ...customDomainRules(CUSTOM_DOMAINS.proxy, "PROXY"),
 
-    // 服务级 AI 规则优先于普通服务直连规则；不使用 category-ai-!cn 大分类。
-    {
-      name: "lean-google-ai",
-      target: "Google AI",
-      provider: ruleProvider({
-        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/google-gemini.mrs",
-        path: "./ruleset/lean-ai/geosite-google-gemini.mrs",
-        behavior: "domain",
-      }),
-    },
-    // 只补充两个共享登录域名，不把全部 Google 域名分到 AI 组。
-    {
-      name: "lean-google-ai-login",
-      target: "Google AI",
-      provider: inlineDomainProvider(["accounts.google.com", "oauth2.googleapis.com"]),
-    },
-    {
-      name: "lean-openai",
-      target: "AI",
-      provider: ruleProvider({
-        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/openai.mrs",
-        path: "./ruleset/lean-ai/geosite-openai.mrs",
-        behavior: "domain",
-      }),
-    },
-    {
-      name: "lean-anthropic",
-      target: "AI",
-      provider: ruleProvider({
-        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/anthropic.mrs",
-        path: "./ruleset/lean-ai/geosite-anthropic.mrs",
-        behavior: "domain",
-      }),
-    },
-    {
-      name: "lean-github-copilot",
-      target: "AI",
-      provider: ruleProvider({
-        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/github-copilot.mrs",
-        path: "./ruleset/lean-ai/geosite-github-copilot.mrs",
-        behavior: "domain",
-      }),
-    },
-    // 使用少量明确的域名补充，不把整个微软或 Bing 分到 AI。
-    {
-      name: "lean-microsoft-copilot",
-      target: "AI",
-      provider: inlineDomainProvider([
-        "+.copilot.microsoft.com",
-        "+.copilot.cloud.microsoft",
-        "+.copilot.com",
-        "+.copilot-stg.com",
-      ]),
-    },
-    {
-      name: "lean-cursor",
-      target: "AI",
-      provider: ruleProvider({
-        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/cursor.mrs",
-        path: "./ruleset/lean-ai/geosite-cursor.mrs",
-        behavior: "domain",
-      }),
-    },
-    {
-      name: "lean-perplexity",
-      target: "AI",
-      provider: ruleProvider({
-        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/perplexity.mrs",
-        path: "./ruleset/lean-ai/geosite-perplexity.mrs",
-        behavior: "domain",
-      }),
-    },
-    {
-      name: "lean-xai",
-      target: "AI",
-      provider: ruleProvider({
-        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/xai.mrs",
-        path: "./ruleset/lean-ai/geosite-xai.mrs",
-        behavior: "domain",
-      }),
-    },
-    {
-      name: "lean-windsurf",
-      target: "AI",
-      provider: ruleProvider({
-        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/windsurf.mrs",
-        path: "./ruleset/lean-ai/geosite-windsurf.mrs",
-        behavior: "domain",
-      }),
-    },
-    {
-      name: "lean-poe",
-      target: "AI",
-      provider: ruleProvider({
-        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/poe.mrs",
-        path: "./ruleset/lean-ai/geosite-poe.mrs",
-        behavior: "domain",
-      }),
-    },
-    { name: "lean-mistral", target: "AI", provider: inlineDomainProvider(["+.mistral.ai"]) },
-    { name: "lean-cohere", target: "AI", provider: inlineDomainProvider(["+.cohere.ai", "+.cohere.com"]) },
+    // Google AI 单独分流；登录只补充两个域名，不代理整个 Google 到 AI 组。
+    "GEOSITE,google-gemini,Google AI",
+    "DOMAIN,accounts.google.com,Google AI",
+    "DOMAIN,oauth2.googleapis.com,Google AI",
 
-    // 域名直连例外在海外集合前，国内 IP 兜底仍在海外集合后。
-    // 微软的大陆 CDN 直连；不包含全微软直连或遥测拦截。
-    {
-      name: "lean-microsoft-cdn",
-      target: "DIRECT",
-      provider: ruleProvider({
-        url: "https://ruleset.skk.moe/Clash/non_ip/microsoft_cdn.txt",
-        path: "./ruleset/lean-ai/sukka-microsoft-cdn.txt",
-        behavior: "classical",
-        format: "text",
-      }),
-    },
-    // 国内域名优先于通用海外集合。
-    {
-      name: "lean-cn-domain",
-      target: "DIRECT",
-      provider: ruleProvider({
-        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/cn.mrs",
-        path: "./ruleset/lean-ai/geosite-cn.mrs",
-        behavior: "domain",
-      }),
-    },
-    // Sukka 通用海外服务集合，仍需放在明确的直连例外之后。
-    {
-      name: "lean-proxy-domain",
-      target: "PROXY",
-      provider: ruleProvider({
-        url: "https://ruleset.skk.moe/Clash/non_ip/global.txt",
-        path: "./ruleset/lean-ai/sukka-global.txt",
-        behavior: "classical",
-        format: "text",
-      }),
-    },
-    {
-      name: "lean-cn-ip",
-      target: "DIRECT",
-      provider: ruleProvider({
-        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geoip/cn.mrs",
-        path: "./ruleset/lean-ai/geoip-cn.mrs",
-        behavior: "ipcidr",
-      }),
-    },
-    // CN 规则集未命中时，再用内核 GeoIP 兜底，不把国内裸 IP 直接送到 MATCH。
-    { rule: "GEOIP,CN,DIRECT" },
-    // IP 规则已触发解析，再检查私有 IP，避免内网域名落入代理兜底。
-    { name: "lean-private-ip", target: "DIRECT", noResolve: true },
+    "GEOSITE,openai,AI",
+    "GEOSITE,anthropic,AI",
+    "GEOSITE,github-copilot,AI",
+    "DOMAIN-SUFFIX,copilot.microsoft.com,AI",
+    "DOMAIN-SUFFIX,copilot.cloud.microsoft,AI",
+    "DOMAIN-SUFFIX,copilot.com,AI",
+    "DOMAIN-SUFFIX,copilot-stg.com,AI",
+    "GEOSITE,cursor,AI",
+    "GEOSITE,perplexity,AI",
+    "GEOSITE,xai,AI",
+    "GEOSITE,windsurf,AI",
+    "GEOSITE,poe,AI",
+    "DOMAIN-SUFFIX,mistral.ai,AI",
+    "DOMAIN-SUFFIX,cohere.ai,AI",
+    "DOMAIN-SUFFIX,cohere.com,AI",
+
+    // 保留常用微软下载直连，其他微软国内域名使用 geosite 的 cn 属性。
+    "DOMAIN-SUFFIX,download.microsoft.com,DIRECT",
+    "DOMAIN-SUFFIX,officecdn.microsoft.com,DIRECT",
+    "DOMAIN-SUFFIX,vscode.download.prss.microsoft.com,DIRECT",
+    "GEOSITE,microsoft@cn,DIRECT",
+    "GEOSITE,cn,DIRECT",
+    "GEOSITE,geolocation-!cn,PROXY",
+
+    // 裸 IP（如微信）使用 GeoIP；解析后再检查私有 IP，避免内网落入代理兜底。
+    "GEOIP,CN,DIRECT",
+    "GEOIP,private,DIRECT,no-resolve",
+    "MATCH,PROXY",
   ];
 }
 
-function createRuleProviders(ruleSets) {
-  const providers = {};
-  for (const { name, provider } of ruleSets) {
-    if (provider) providers[name] = provider;
-  }
-  return providers;
-}
-
-function createRules(ruleSets) {
-  const rules = ruleSets.map(({ name, target, noResolve, rule }) =>
-    rule || "RULE-SET," + name + "," + target + (noResolve ? ",no-resolve" : ""));
-  return [...rules, "MATCH,PROXY"];
-}
-
-// 规则目标写错会让内核启动失败，提前给出明确的报错。
 function assertRuleTargets(rules, groups) {
   const known = new Set(["DIRECT", "REJECT", ...groups.map(group => group.name)]);
   for (const rule of rules) {
@@ -363,27 +210,6 @@ function assertRuleTargets(rules, groups) {
 // ─────────────────────────────────────────────
 // 4. 分组构建函数：统一默认参数，通常不需要修改
 // ─────────────────────────────────────────────
-
-function ruleProvider({ url, path, behavior, format = "mrs" }) {
-  return {
-    type: "http",
-    behavior,
-    format,
-    url,
-    path,
-    interval: RULE_UPDATE_INTERVAL,
-    proxy: downloadProxyName(),
-  };
-}
-
-function inlineDomainProvider(payload) {
-  return {
-    type: "inline",
-    behavior: "domain",
-    format: "yaml",
-    payload: [...payload],
-  };
-}
 
 // 节点池有两种形态，字段保持一致，方便 applyPool 统一处理：
 //   explicitPool  只使用列出的节点和订阅（前置 / 落地）。
@@ -663,9 +489,8 @@ function preserveDnsRuleProviders(config, ruleProviders, removedGroups) {
 function main(config) {
   const chain = prepareChain(config);
   const proxyGroups = createProxyGroups(chain);
-  const ruleSets = createRuleSets();
-  const ruleProviders = createRuleProviders(ruleSets);
-  const rules = createRules(ruleSets);
+  const ruleProviders = {};
+  const rules = createRules();
   assertRuleTargets(rules, proxyGroups);
 
   // 被本脚本替换掉的旧代理组名，用于修正仍被引用的旧规则集。

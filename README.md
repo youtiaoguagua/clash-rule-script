@@ -1,28 +1,35 @@
 # Mihomo 精简分流脚本
 
-面向 Mihomo 内核客户端的 JavaScript 覆写脚本。保留节点订阅，重建分组和分流规则，适用于支持 `main(config)` 脚本的 Clash Party、Mihomo Party、Clash Verge Rev 等客户端。
+面向 Mihomo 内核客户端的 JavaScript 覆写脚本。主分流使用客户端本地的完整 `geosite.dat` 和 GeoIP 数据，不再逐项下载 HTTP 规则集。保留节点订阅、地区分组和动态链式代理，适用于支持 `main(config)` 的 Clash Party、Mihomo Party、Clash Verge Rev 等客户端。
 
-已使用 Mihomo **v1.19.31 / v1.19.32** 验证。不适用于经典 Clash 内核。脚本依赖较新的 Mihomo 字段，如 `include-all`、`empty-fallback` 和 MRS 规则集。
+不适用于经典 Clash 内核。脚本依赖 Mihomo 的 `GEOSITE`、`include-all` 和 `empty-fallback` 等功能。
 
 ## 使用
 
 1. 打开订阅对应的 JavaScript 覆写脚本编辑器。
 2. 用 [`clash-script.js`](./clash-script.js) 的完整内容替换旧脚本，不要叠加两个分流脚本。
-3. 应用配置，确认客户端加载了规则集和下列分组。
+3. 确认客户端已有完整的 GeoSite 数据；若版本过旧，先在客户端更新 Geo 数据，再应用配置。
 4. 在 `US` 分组选择自动测速或一个美国节点；两个 AI 分组默认跟随 `US`。
 5. 修改后关闭需要重新选路的旧连接，再验证日志中的策略。
 
-只有 `clash-script.js` 需要导入客户端。测试、文档和 Node.js 不是运行此覆写脚本的前提。
+只有 `clash-script.js` 需要导入客户端，Node.js 不是运行覆写脚本的前提。
 
-脚本会设置 `mode: rule`，替换原分组、规则集及分流规则，并移除旧的 `sub-rules`。节点名不能与本脚本的分组同名。旧 DNS、订阅下载等设置若引用了被删除的分组，需要自行调整；脚本不再遍历这些设置做预检查。
+脚本会设置 `mode: rule`，替换原分组和主分流规则，并移除旧的 `sub-rules`。旧 `rule-providers` 只有在 DNS 仍引用时才保留。节点名不能与脚本分组同名；旧设置若引用被删除的分组，需要自行调整。
 
-只保留生成副本的名称检查、前置 / 落地来源不重叠，以及前置不能已经串联这几项保护。字段类型、节点重名、来源名称、DNS 引导和下载代理不再额外预检；配置错误查看客户端脚本或内核日志。
+链式部分保留副本名称、来源存在 / 不重叠、前置未串联等必要检查，规则目标也需存在。字段类型、节点重名、DNS 引导和下载代理不做穷举预检；配置错误查看客户端脚本或内核日志。
+
+## Geo 数据
+
+- 使用完整的 `geosite.dat`，例如 MetaCubeX 的完整版本。需要包含 `private`、`cn`、`geolocation-!cn`、`google-gemini`、`openai`、`anthropic` 等服务分类；分类缺失会导致内核配置加载失败。
+- `geodata-mode: false` 使用 MMDB 判断 GeoIP；`true` 使用 `geoip.dat`。脚本不改变客户端现有的模式。
+- 不改 `geox-url`、Geo 自动更新开关或更新间隔，Geo 文件仍由客户端管理。已有完整文件时直接读取，不再触发原先那批 HTTP rule-provider 的初始化。
+- 这减少了主分流的下载源数量，但不能证明原来的失败是限流，也不保证首次下载和 Geo 更新永远成功。
 
 ## 分组
 
 | 分组 | 默认选择 / 用途 |
 | --- | --- |
-| `PROXY` | 默认全节点自动选择，也可选择地区组、负载均衡或单个节点 |
+| `PROXY` | 默认原节点自动选择，也可选择地区组、负载均衡、原节点或统一的“链式代理”入口；不逐个列出落地副本 |
 | `US` | 美国节点自动选择，也可手动指定美国节点 |
 | `JP` | 日本节点自动选择，也可手动指定日本节点 |
 | `SG` | 新加坡节点自动选择，也可手动指定新加坡节点 |
@@ -32,14 +39,14 @@
 | `前置代理` | 链式连接第一跳，使用当前订阅的原始节点 |
 | `链式代理` | 链式连接第二跳，使用当前订阅节点的独立落地副本 |
 
-默认八个自动测速子组设置了 `hidden: true`。支持该字段的客户端不会单独显示它们的卡片，但主组内的自动选择选项仍然可用。子组保留在配置中，避免丢失手动 / 自动切换能力。关闭链式功能后剩六个。
+默认六个自动测速子组设置了 `hidden: true`，关闭链式功能后剩四个。两个 AI 组复用全节点的“自动选择”。支持隐藏字段的客户端不会单独显示子组卡片，但主组内仍可手动 / 自动切换。
 
 注意：
 
 - 地区筛选依据节点名称，不检测实际出口国家。
 - 自动测速检测 `https://www.gstatic.com/generate_204` 的连通性和延迟，不检测 AI 解锁能力。
-- AI 的独立自动组包含全部节点；选择它们可能切换到不适合该服务的出口。
-- `load-balance` 额外排除含 `GB`、`Premium`、`ISP` 等标签的节点；如需这些节点，可修改 `NODE_FILTERS.loadBalanceExclude`。
+- 全节点自动选择不检测 AI 解锁；两个 AI 组选它时可能切换到不适合该服务的出口。
+- `load-balance` 额外排除流量数字中的 `GB`、`Premium` 和独立的 `ISP` 标签；可修改 `NODE_FILTERS.loadBalanceExclude`。
 - 筛选后没有节点时使用 `REJECT`，不会静默回退直连。
 
 ## 分流顺序
@@ -48,14 +55,14 @@
 2. 自定义域名的拒绝、直连、代理例外。
 3. Google AI 与两个 Google 登录端点走 `Google AI`。
 4. OpenAI、Anthropic、Copilot、Cursor、Perplexity、xAI、Windsurf、Poe、Mistral、Cohere 走 `AI`。
-5. 微软中国大陆 CDN、国内域名直连。
-6. Sukka 通用海外域名走 `PROXY`。
-7. 国内 IP 规则集优先直连，未命中时用 `GEOIP,CN,DIRECT` 补充，再检查解析后出现的私有 IP。
+5. 常用微软下载域名、`microsoft@cn` 和 `cn` 分类直连。
+6. `geolocation-!cn` 分类走 `PROXY`。
+7. `GEOIP,CN,DIRECT` 处理国内裸 IP，并再次检查解析后出现的私有 IP。
 8. 其余请求由 `MATCH,PROXY` 兜底。
 
 最后一次私有 IP 检查用于修正这类情况：请求最初只有域名，顶部的 `no-resolve` 规则无法判断；后续 IP 规则解析出内网地址，此时应直连，而不是落到兜底代理。
 
-GeoIP 补充规则依赖客户端的地理数据库，不依赖远程 CN provider。它只处理前面尚未匹配的连接，不覆盖明确的 AI 或自定义代理规则；远程 CN 集合仍应正常加载。
+GeoIP 使用客户端的地理数据库，不再依赖远程 CN provider。它只处理前面尚未匹配的连接，不覆盖明确的 AI 或自定义代理规则。
 
 这项检查不覆盖更早已命中的服务域名规则。需要明确强制某个内网域名直连时，仍建议把它加入自定义直连集合。
 
@@ -63,11 +70,13 @@ GeoIP 补充规则依赖客户端的地理数据库，不依赖远程 CN provide
 
 | 来源 | 使用内容 |
 | --- | --- |
-| [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat) | 私有网络、国内域名 / IP、Google AI、服务级 AI 的 MRS 集合 |
-| [SukkaW/Surge](https://github.com/SukkaW/Surge) / [ruleset.skk.moe](https://ruleset.skk.moe/) | 微软中国大陆 CDN和通用海外域名，`classical/text` 格式 |
-| 本地内联集合 | Google 登录、Microsoft Copilot、Mistral、Cohere 和用户例外 |
+| 客户端完整 GeoSite 数据（推荐 [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat)） | 私有域名、国内域名、Google AI、服务级 AI、海外分类 |
+| 客户端 GeoIP 数据 | 国内及私有 IP；沿用 MMDB / DAT 模式 |
+| 脚本内直接域名规则 | Google 登录、Microsoft Copilot、Mistral、Cohere、常用微软下载和用户例外 |
 
-远程集合每 86400 秒更新。默认使用 `CHAIN_PROXY.downloadProxy`（`DIRECT`）下载，避免引导依赖链式代理；关闭链式功能时使用 `PROXY`。每个地址和缓存路径在脚本中完整列出，MRS 与文本规则不会共用缓存文件。第三方规则内容及许可由各自上游项目维护，本仓库不分发缓存数据。
+不再下载 Sukka 的 `microsoft_cdn.txt` 和 `global.txt`。它们分别替换为明确的常用下载域名 / `microsoft@cn`，以及 `geolocation-!cn`；这些分类与 Sukka 集合并不保证完全等价。不在仓库分发 Geo 数据文件。
+
+默认生成的主分流没有 `rule-provider`。如果你的 DNS 使用 `rule-set:` 或 `RULE-SET` 引用旧集合，脚本仍保留订阅中对应的定义，这些依赖可能继续下载；不能为了删干净而破坏 DNS。机场节点的 `proxy-providers` 也仍然保留。
 
 ## 自定义
 
@@ -78,7 +87,6 @@ GeoIP 补充规则依赖客户端的地理数据库，不依赖远程 CN provide
 - `CUSTOM_DOMAINS`：域名例外。
 - `CHAIN_PROXY`：链式功能开关、自动 / 手动来源与下载引导方式。
 - `createProxyGroups()`：分组选项，`proxies` 的第一个选项为默认值。
-- `createRuleProviders()`：规则来源与格式。
 - `createRules()`：分流优先级。
 
 自定义例外默认为空。例如：
@@ -155,8 +163,8 @@ const CHAIN_PROXY = {
 - 自动模式的原池与落地副本隔离；手动模式的两个来源不得重叠。
 - 普通分组不包含链式落地副本 / 手动指定的落地节点，避免不选择链式模式也意外经过前置。
 - 保留订阅 URL、凭据和已有名称前缀；自动模式为落地副本额外添加名称前缀。
-- `downloadProxy` 控制角色 HTTP 订阅和 HTTP 规则集下载，包括 DNS 仍引用的旧规则集，不经过链式分组。默认 `DIRECT`。
-- 如果规则地址不能直连，可把 `downloadProxy` 改成一个现有、未串联、非落地的**静态节点名称**，不能填 `PROXY`、`前置代理` 等分组。
+- `downloadProxy` 只控制角色 HTTP 节点订阅和 DNS 仍引用的旧 HTTP 规则集，默认 `DIRECT`，不控制 Geo 文件更新。
+- 如果这些地址不能直连，可填写一个现有、未串联、非落地的**静态节点名称**，避免下载依赖正在建立的链式分组。
 - DNS 不会被自动更改，也不再校验引导方式。开启 `dns.respect-rules` 时应自行配置独立的 `proxy-server-nameserver`；避免节点 DNS 再依赖这些代理分组或 `#RULES`。
 - 前置故障时连接失败，不会偷偷绕过前置直连落地。
 
@@ -190,37 +198,14 @@ provider 的 `proxy-name`、前后缀及 `override-expr` 都保留，不再禁�
 
 ```sh
 npm run check
-npm test
 ```
 
-GitHub Actions 只运行语法检查和单元测试，不安装 Mihomo，不访问被测试的 AI 或内网服务。
-
-### 可选 Mihomo 集成测试
-
-集成测试使用本地模拟 DNS、HTTP 代理和 TCP / UDP 服务，验证真实 Mihomo 的分流，不修改系统 DNS、TUN 或网络接口，也不向测试域名发送真实业务请求。
-
-先从 [Mihomo 官方 Releases](https://github.com/MetaCubeX/mihomo/releases) 准备一个可执行内核，再下载测试所需的规则缓存：
-
-```powershell
-node scripts/prepare-integration-cache.cjs C:\temp\mihomo-rule-cache
-
-$env:MIHOMO_EXECUTABLE = "C:\tools\mihomo.exe"
-$env:MIHOMO_RULE_CACHE = "C:\temp\mihomo-rule-cache"
-npm run test:integration
-```
-
-这些路径是示例，需换成实际位置。缓存准备脚本只下载规则集，不下载或运行内核。不设置两个环境变量时，集成测试会跳过。
-
-测试夹具与内核日志保存在系统临时目录，便于排查失败。实际节点的可用性和 AI 解锁不在这些模拟测试的验证范围内。
+语法检查不能代替内核验证；内核还需要读取 Geo 文件、检查分类存在并解析最终 YAML。可以用 Mihomo 的 `-t` 检查生成配置，再验证实际连接日志。旧的 HTTP 规则缓存准备工具和测试文件已不在本仓库中。
 
 ## 项目文件
 
 ```text
-clash-script.js                       客户端覆写脚本
-clash-script.test.cjs                 单元测试
-clash-script.chain.test.cjs           链式编排与安全检查
-clash-script.integration.test.cjs     可选 Mihomo 实测
-clash-script.chain.integration.test.cjs 可选链式实测
-scripts/prepare-integration-cache.cjs  规则缓存下载工具
-.github/workflows/test.yml            GitHub Actions
+clash-script.js  客户端覆写脚本
+README.md        使用说明
+package.json     语法检查命令
 ```

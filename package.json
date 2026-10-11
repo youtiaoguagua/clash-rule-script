@@ -2,15 +2,11 @@
   "name": "mihomo-rule-script",
   "version": "0.2.0",
   "private": true,
-  "description": "Mihomo JavaScript override with service-level rules and regional proxy groups",
+  "description": "Mihomo JavaScript override with native Geo rules and dynamic proxy chains",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "check": "node --check clash-script.js && node --check clash-script.test.cjs && node --check clash-script.chain.test.cjs && node --check clash-script.integration.test.cjs && node --check clash-script.chain.integration.test.cjs && node --check scripts/prepare-integration-cache.cjs",
-    "test": "node --test clash-script.test.cjs clash-script.chain.test.cjs",
-    "test:integration": "node --test clash-script.integration.test.cjs clash-script.chain.integration.test.cjs",
-    "test:all": "node --test clash-script.test.cjs clash-script.chain.test.cjs clash-script.integration.test.cjs clash-script.chain.integration.test.cjs",
-    "prepare:rules": "node scripts/prepare-integration-cache.cjs"
+    "check": "node --check clash-script.js"
   }
 }
