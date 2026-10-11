@@ -50,10 +50,12 @@
 4. OpenAI、Anthropic、Copilot、Cursor、Perplexity、xAI、Windsurf、Poe、Mistral、Cohere 走 `AI`。
 5. 微软中国大陆 CDN、国内域名直连。
 6. Sukka 通用海外域名走 `PROXY`。
-7. 国内 IP 直连，并再次检查解析后出现的私有 IP。
+7. 国内 IP 规则集优先直连，未命中时用 `GEOIP,CN,DIRECT` 补充，再检查解析后出现的私有 IP。
 8. 其余请求由 `MATCH,PROXY` 兜底。
 
 最后一次私有 IP 检查用于修正这类情况：请求最初只有域名，顶部的 `no-resolve` 规则无法判断；后续 IP 规则解析出内网地址，此时应直连，而不是落到兜底代理。
+
+GeoIP 补充规则依赖客户端的地理数据库，不依赖远程 CN provider。它只处理前面尚未匹配的连接，不覆盖明确的 AI 或自定义代理规则；远程 CN 集合仍应正常加载。
 
 这项检查不覆盖更早已命中的服务域名规则。需要明确强制某个内网域名直连时，仍建议把它加入自定义直连集合。
 

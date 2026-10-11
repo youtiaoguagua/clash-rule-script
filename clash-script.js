@@ -3,7 +3,7 @@
 // 默认生成可在界面切换的链式分组；普通代理仍使用原始节点。
 // 不修改 DNS、TUN、端口、订阅地址或凭据。
 // US 按节点名称筛选，不检测实际出口国家，也不保证 AI 服务可用。
-// 主规则只用 RULE-SET 和最终的 MATCH，远程规则集每天更新。
+// 主要使用 RULE-SET，GEOIP 补充国内 IP 兜底，最终使用 MATCH；远程规则集每天更新。
 //
 // 文件结构：
 //   1. 常用设置      通常只需要改这一节
@@ -146,6 +146,7 @@ function createProxyGroups(chain) {
 // 3. 规则：每一项同时定义规则集和匹配目标，顺序就是匹配顺序
 // ─────────────────────────────────────────────
 // 先匹配的规则生效。没有 provider 的项表示复用前面已定义的同名规则集。
+// rule 字段用于不依赖远程规则集的内核规则。
 // MetaCubeX 使用 domain/ipcidr + mrs，Sukka 使用 classical + text。
 
 
@@ -328,7 +329,9 @@ function createRuleSets() {
         behavior: "ipcidr",
       }),
     },
-    // 上一条 IP 规则已触发解析，再检查私有 IP，避免内网域名落入代理兜底。
+    // CN 规则集未命中时，再用内核 GeoIP 兜底，不把国内裸 IP 直接送到 MATCH。
+    { rule: "GEOIP,CN,DIRECT" },
+    // IP 规则已触发解析，再检查私有 IP，避免内网域名落入代理兜底。
     { name: "lean-private-ip", target: "DIRECT", noResolve: true },
   ];
 }
@@ -342,8 +345,8 @@ function createRuleProviders(ruleSets) {
 }
 
 function createRules(ruleSets) {
-  const rules = ruleSets.map(({ name, target, noResolve }) =>
-    "RULE-SET," + name + "," + target + (noResolve ? ",no-resolve" : ""));
+  const rules = ruleSets.map(({ name, target, noResolve, rule }) =>
+    rule || "RULE-SET," + name + "," + target + (noResolve ? ",no-resolve" : ""));
   return [...rules, "MATCH,PROXY"];
 }
 
