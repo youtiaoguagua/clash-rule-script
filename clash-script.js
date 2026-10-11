@@ -112,7 +112,6 @@ function createProxyGroups(chain) {
     selectGroup({
       name: "PROXY",
       proxies: ["自动选择", "US", "JP", "SG", "load-balance", ...chainChoice],
-      excludeFilter: NODE_FILTERS.exclude + "|^链式落地 \\| ",
       pool,
     }),
     // 地区组同时提供该地区的自动选择和单个节点。
@@ -219,8 +218,8 @@ function explicitPool(nodes, providers) {
   return { nodes, providers, allStatic: false, excludedNodes: [] };
 }
 
-function allNodesPool(providers, excludedNodes) {
-  return { nodes: [], providers, allStatic: true, excludedNodes };
+function allNodesPool(providers, excludedNodes, excludedPrefix = "") {
+  return { nodes: [], providers, allStatic: true, excludedNodes, excludedPrefix };
 }
 
 function applyPool(group, pool) {
@@ -231,7 +230,9 @@ function applyPool(group, pool) {
   } else if (pool.nodes.length) {
     group.proxies = [...(group.proxies || []), ...pool.nodes];
   }
-  const excluded = excludedNodeFilter(pool.excludedNodes);
+  const excluded = pool.excludedPrefix
+    ? "(?-i)^" + escapeNodeName(pool.excludedPrefix)
+    : excludedNodeFilter(pool.excludedNodes);
   if (excluded) group["exclude-filter"] += "|" + excluded;
 }
 
@@ -270,11 +271,13 @@ function loadBalanceGroup({ name, pool }) {
   };
 }
 
+function escapeNodeName(name) {
+  return name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/`/g, "\\x60");
+}
+
 function excludedNodeFilter(names) {
   if (!names.length) return "";
-  const escaped = names.map(function (name) {
-    return name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/`/g, "\\x60");
-  });
+  const escaped = names.map(escapeNodeName);
   // 普通排除规则是 (?i)，这里恢复大小写敏感，避免误伤名称仅大小写不同的节点。
   return "(?-i)^(?:" + escaped.join("|") + ")$";
 }
@@ -431,9 +434,11 @@ function prepareChain(config) {
     proxyProviders: prepareChainProviders(providers, front, exit, automatic),
     frontPool: explicitPool(front.nodes, front.providers),
     exitPool: explicitPool(exitNodeNames, exitProviderNames),
+    // 自动模式按副本前缀排除；手动落地保留原名，只排除指定节点。
     normalPool: allNodesPool(
       Object.keys(providers).filter(name => automatic || !exit.providers.includes(name)),
-      exitNodeNames,
+      automatic ? [] : exitNodeNames,
+      automatic ? CHAIN_COPY.nodePrefix : "",
     ),
   };
 }
