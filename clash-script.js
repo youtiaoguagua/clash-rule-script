@@ -148,8 +148,6 @@ function createProxyGroups(chain) {
 // 先匹配的规则生效。没有 provider 的项表示复用前面已定义的同名规则集。
 // MetaCubeX 使用 domain/ipcidr + mrs，Sukka 使用 classical + text。
 
-const META_GEOSITE = "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/";
-const META_GEOIP = "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/";
 
 function createRuleSets() {
   // 只有手动填入 CUSTOM_DOMAINS 的域名才会生成这些例外。
@@ -163,23 +161,72 @@ function createRuleSets() {
 
   return [
     // 局域网及私有域名 / IP 网段。
-    { name: "lean-private-domain", target: "DIRECT", provider: metaGeosite("private") },
-    { name: "lean-private-ip", target: "DIRECT", noResolve: true, provider: metaGeoip("private") },
+    {
+      name: "lean-private-domain",
+      target: "DIRECT",
+      provider: ruleProvider({
+        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/private.mrs",
+        path: "./ruleset/lean-ai/geosite-private.mrs",
+        behavior: "domain",
+      }),
+    },
+    {
+      name: "lean-private-ip",
+      target: "DIRECT",
+      noResolve: true,
+      provider: ruleProvider({
+        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geoip/private.mrs",
+        path: "./ruleset/lean-ai/geoip-private.mrs",
+        behavior: "ipcidr",
+      }),
+    },
 
     // 自定义例外优先于下面的外网服务规则，不会改变私有网络规则。
     ...custom,
 
     // 服务级 AI 规则优先于普通服务直连规则；不使用 category-ai-!cn 大分类。
-    { name: "lean-google-ai", target: "Google AI", provider: metaGeosite("google-gemini") },
+    {
+      name: "lean-google-ai",
+      target: "Google AI",
+      provider: ruleProvider({
+        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/google-gemini.mrs",
+        path: "./ruleset/lean-ai/geosite-google-gemini.mrs",
+        behavior: "domain",
+      }),
+    },
     // 只补充两个共享登录域名，不把全部 Google 域名分到 AI 组。
     {
       name: "lean-google-ai-login",
       target: "Google AI",
       provider: inlineDomainProvider(["accounts.google.com", "oauth2.googleapis.com"]),
     },
-    { name: "lean-openai", target: "AI", provider: metaGeosite("openai") },
-    { name: "lean-anthropic", target: "AI", provider: metaGeosite("anthropic") },
-    { name: "lean-github-copilot", target: "AI", provider: metaGeosite("github-copilot") },
+    {
+      name: "lean-openai",
+      target: "AI",
+      provider: ruleProvider({
+        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/openai.mrs",
+        path: "./ruleset/lean-ai/geosite-openai.mrs",
+        behavior: "domain",
+      }),
+    },
+    {
+      name: "lean-anthropic",
+      target: "AI",
+      provider: ruleProvider({
+        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/anthropic.mrs",
+        path: "./ruleset/lean-ai/geosite-anthropic.mrs",
+        behavior: "domain",
+      }),
+    },
+    {
+      name: "lean-github-copilot",
+      target: "AI",
+      provider: ruleProvider({
+        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/github-copilot.mrs",
+        path: "./ruleset/lean-ai/geosite-github-copilot.mrs",
+        behavior: "domain",
+      }),
+    },
     // 使用少量明确的域名补充，不把整个微软或 Bing 分到 AI。
     {
       name: "lean-microsoft-copilot",
@@ -191,11 +238,51 @@ function createRuleSets() {
         "+.copilot-stg.com",
       ]),
     },
-    { name: "lean-cursor", target: "AI", provider: metaGeosite("cursor") },
-    { name: "lean-perplexity", target: "AI", provider: metaGeosite("perplexity") },
-    { name: "lean-xai", target: "AI", provider: metaGeosite("xai") },
-    { name: "lean-windsurf", target: "AI", provider: metaGeosite("windsurf") },
-    { name: "lean-poe", target: "AI", provider: metaGeosite("poe") },
+    {
+      name: "lean-cursor",
+      target: "AI",
+      provider: ruleProvider({
+        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/cursor.mrs",
+        path: "./ruleset/lean-ai/geosite-cursor.mrs",
+        behavior: "domain",
+      }),
+    },
+    {
+      name: "lean-perplexity",
+      target: "AI",
+      provider: ruleProvider({
+        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/perplexity.mrs",
+        path: "./ruleset/lean-ai/geosite-perplexity.mrs",
+        behavior: "domain",
+      }),
+    },
+    {
+      name: "lean-xai",
+      target: "AI",
+      provider: ruleProvider({
+        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/xai.mrs",
+        path: "./ruleset/lean-ai/geosite-xai.mrs",
+        behavior: "domain",
+      }),
+    },
+    {
+      name: "lean-windsurf",
+      target: "AI",
+      provider: ruleProvider({
+        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/windsurf.mrs",
+        path: "./ruleset/lean-ai/geosite-windsurf.mrs",
+        behavior: "domain",
+      }),
+    },
+    {
+      name: "lean-poe",
+      target: "AI",
+      provider: ruleProvider({
+        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/poe.mrs",
+        path: "./ruleset/lean-ai/geosite-poe.mrs",
+        behavior: "domain",
+      }),
+    },
     { name: "lean-mistral", target: "AI", provider: inlineDomainProvider(["+.mistral.ai"]) },
     { name: "lean-cohere", target: "AI", provider: inlineDomainProvider(["+.cohere.ai", "+.cohere.com"]) },
 
@@ -212,7 +299,15 @@ function createRuleSets() {
       }),
     },
     // 国内域名优先于通用海外集合。
-    { name: "lean-cn-domain", target: "DIRECT", provider: metaGeosite("cn") },
+    {
+      name: "lean-cn-domain",
+      target: "DIRECT",
+      provider: ruleProvider({
+        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/cn.mrs",
+        path: "./ruleset/lean-ai/geosite-cn.mrs",
+        behavior: "domain",
+      }),
+    },
     // Sukka 通用海外服务集合，仍需放在明确的直连例外之后。
     {
       name: "lean-proxy-domain",
@@ -224,7 +319,15 @@ function createRuleSets() {
         format: "text",
       }),
     },
-    { name: "lean-cn-ip", target: "DIRECT", provider: metaGeoip("cn") },
+    {
+      name: "lean-cn-ip",
+      target: "DIRECT",
+      provider: ruleProvider({
+        url: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geoip/cn.mrs",
+        path: "./ruleset/lean-ai/geoip-cn.mrs",
+        behavior: "ipcidr",
+      }),
+    },
     // 上一条 IP 规则已触发解析，再检查私有 IP，避免内网域名落入代理兜底。
     { name: "lean-private-ip", target: "DIRECT", noResolve: true },
   ];
@@ -257,22 +360,6 @@ function assertRuleTargets(rules, groups) {
 // ─────────────────────────────────────────────
 // 4. 分组构建函数：统一默认参数，通常不需要修改
 // ─────────────────────────────────────────────
-
-function metaGeosite(file) {
-  return ruleProvider({
-    url: META_GEOSITE + file + ".mrs",
-    path: "./ruleset/lean-ai/geosite-" + file + ".mrs",
-    behavior: "domain",
-  });
-}
-
-function metaGeoip(file) {
-  return ruleProvider({
-    url: META_GEOIP + file + ".mrs",
-    path: "./ruleset/lean-ai/geoip-" + file + ".mrs",
-    behavior: "ipcidr",
-  });
-}
 
 function ruleProvider({ url, path, behavior, format = "mrs" }) {
   return {
