@@ -1,0 +1,15 @@
+node_modules/
+coverage/
+.cache/
+ruleset/
+.env
+.env.*
+*.log
+*.exe
+*.zip
+*.mrs
+*.mmdb
+cache.db
+config.json
+config.yaml
+config.yml
