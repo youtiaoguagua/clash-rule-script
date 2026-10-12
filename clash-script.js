@@ -11,8 +11,7 @@
 //   3. 规则          原生 GEOSITE / GEOIP 与少量域名例外
 //   4. 分组构建函数  统一默认参数
 //   5. 链式代理      生成前置 / 落地节点池
-//   6. DNS 规则集    保留现有 DNS 仍在引用的规则集
-//   7. 入口          main()
+//   6. 入口          main()
 
 // ─────────────────────────────────────────────
 // 1. 常用设置
@@ -161,6 +160,9 @@ function createRules() {
     ...customDomainRules(CUSTOM_DOMAINS.direct, "DIRECT"),
     ...customDomainRules(CUSTOM_DOMAINS.proxy, "PROXY"),
 
+    // 广告与隐私追踪拦截（原生 geosite 规则库，零网络下载开销）
+    "GEOSITE,category-ads-all,REJECT",
+
     // Google AI 单独分流；登录只补充两个域名，不代理整个 Google 到 AI 组。
     "GEOSITE,google-gemini,Google AI",
     "DOMAIN,accounts.google.com,Google AI",
@@ -178,6 +180,8 @@ function createRules() {
     "GEOSITE,xai,AI",
     "GEOSITE,windsurf,AI",
     "GEOSITE,poe,AI",
+    "GEOSITE,groq,AI",
+    "DOMAIN-SUFFIX,openrouter.ai,AI",
     "DOMAIN-SUFFIX,mistral.ai,AI",
     "DOMAIN-SUFFIX,cohere.ai,AI",
     "DOMAIN-SUFFIX,cohere.com,AI",
@@ -187,12 +191,12 @@ function createRules() {
     "DOMAIN-SUFFIX,officecdn.microsoft.com,DIRECT",
     "DOMAIN-SUFFIX,vscode.download.prss.microsoft.com,DIRECT",
     "GEOSITE,microsoft@cn,DIRECT",
-    "GEOSITE,cn,DIRECT",
-    "GEOSITE,geolocation-!cn,PROXY",
 
-    // 裸 IP（如微信）使用 GeoIP；解析后再检查私有 IP，避免内网落入代理兜底。
-    "GEOIP,CN,DIRECT",
-    "GEOIP,private,DIRECT,no-resolve",
+    // 国内域名直连
+    "GEOSITE,cn,DIRECT",
+
+    // 国内 IP 直连（no-resolve 防止未匹配海外域名在本地触发额外 DNS 查询造成泄露）
+    "GEOIP,CN,DIRECT,no-resolve",
     "MATCH,PROXY",
   ];
 }
@@ -444,51 +448,7 @@ function prepareChain(config) {
 }
 
 // ─────────────────────────────────────────────
-// 6. DNS 规则集：保留现有 DNS 仍在使用的规则集
-// ─────────────────────────────────────────────
-
-function visitObject(value, visit) {
-  if (!value || typeof value !== "object") return;
-  Object.keys(value).forEach(function (key) {
-    visit(key, value[key], value);
-    visitObject(value[key], visit);
-  });
-}
-
-// nameserver-policy 用对象键 "rule-set:a,b"，fake-ip-filter 规则模式用 "RULE-SET,a,..." 字符串。
-function collectDnsRuleSetNames(dns) {
-  const names = new Set();
-  visitObject(dns, function (key, value) {
-    if (key.startsWith("rule-set:")) {
-      key.slice(9).split(",").forEach(name => names.add(name.trim()));
-    }
-    if (typeof value === "string" && value.startsWith("RULE-SET,")) {
-      names.add(value.split(",")[1].trim());
-    }
-  });
-  return names;
-}
-
-// 旧规则集的下载代理如果指向已被本脚本替换的旧代理组，或处于链式模式，就改用安全的下载代理。
-function fixPreservedProvider(provider, removedGroups) {
-  if (provider.type !== "http") return provider;
-  if (chainEnabled() || removedGroups.has(provider.proxy)) {
-    return { ...provider, proxy: downloadProxyName() };
-  }
-  return provider;
-}
-
-function preserveDnsRuleProviders(config, ruleProviders, removedGroups) {
-  const oldRuleProviders = config["rule-providers"] || {};
-  for (const name of collectDnsRuleSetNames(config.dns)) {
-    if (!hasOwn(ruleProviders, name) && oldRuleProviders[name]) {
-      ruleProviders[name] = fixPreservedProvider(oldRuleProviders[name], removedGroups);
-    }
-  }
-}
-
-// ─────────────────────────────────────────────
-// 7. 脚本入口：生成分组和规则，不修改 DNS / TUN 等客户端设置
+// 6. 脚本入口：生成分组和规则，移除订阅自带 DNS，由客户端全权接管
 // ─────────────────────────────────────────────
 
 function main(config) {
@@ -498,13 +458,6 @@ function main(config) {
   const rules = createRules();
   assertRuleTargets(rules, proxyGroups);
 
-  // 被本脚本替换掉的旧代理组名，用于修正仍被引用的旧规则集。
-  const newGroupNames = new Set(proxyGroups.map(group => group.name));
-  const removedGroups = new Set(
-    (config["proxy-groups"] || []).map(group => group.name).filter(name => !newGroupNames.has(name)),
-  );
-  preserveDnsRuleProviders(config, ruleProviders, removedGroups);
-
   if (chain) {
     config.proxies = chain.proxies;
     config["proxy-providers"] = chain.proxyProviders;
@@ -513,6 +466,9 @@ function main(config) {
   config["proxy-groups"] = proxyGroups;
   config["rule-providers"] = ruleProviders;
   config.rules = rules;
+
+  // 彻底移除订阅原有 DNS 与子规则，避免顶掉客户端（如 Clash Party）的 DNS 覆盖配置
+  delete config.dns;
   delete config["sub-rules"];
   return config;
 }
