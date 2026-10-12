@@ -7,6 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "check": "node --check clash-script.js"
+    "check": "node --check clash-script.js",
+    "build:substore": "node scripts/build-substore.js"
   }
 }

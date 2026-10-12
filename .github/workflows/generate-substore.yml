@@ -1,0 +1,41 @@
+name: Generate Sub-Store Script
+
+on:
+  push:
+    paths:
+      - "clash-script.js"
+      - "scripts/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Generate Sub-Store script
+        run: |
+          npm run build:substore
+          node --check substore-script.js
+
+      - name: Commit and push changes
+        run: |
+          if git diff --quiet substore-script.js; then
+            echo "No changes detected in substore-script.js."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add substore-script.js
+          git commit -m "chore(auto): generate substore-script.js from clash-script.js"
+          git push
