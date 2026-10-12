@@ -119,10 +119,9 @@ function createProxyGroups(chain) {
     selectGroup({ name: "SG", proxies: ["SG 自动选择"], filter: NODE_FILTERS.sg, pool }),
     urlTestGroup({ name: "自动选择", pool }),
     loadBalanceGroup({ name: "load-balance", pool }),
-    // AI 默认仍走 US，也可选择全节点自动测速。
-    // 全节点自动测速直接复用“自动选择”（它只含节点），避免重复健康检查。
-    selectGroup({ name: "Google AI", proxies: ["US", "自动选择", ...chainChoice, "PROXY"], pool }),
-    selectGroup({ name: "AI", proxies: ["US", "自动选择", ...chainChoice, "PROXY"], pool }),
+    // 业务分组默认跟随 PROXY 组选中的节点，也可单独切换为 US、自动选择或链式代理
+    selectGroup({ name: "Google AI", proxies: ["PROXY", "US", "自动选择", ...chainChoice], pool }),
+    selectGroup({ name: "AI", proxies: ["PROXY", "US", "自动选择", ...chainChoice], pool }),
 
     // 自动测速子组只包含节点，不引用上层分组；隐藏独立卡片，保留主组内的选项。
     urlTestGroup({ name: "US 自动选择", filter: NODE_FILTERS.us, pool }),
