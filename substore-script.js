@@ -1,7 +1,7 @@
 // Clash Party / Mihomo Party / Clash Verge Rev 覆写脚本，需要较新的 Mihomo 内核。
 // 用完整文件替换旧脚本，不要把两个分流脚本叠加运行。
 // 默认生成可在界面切换的链式分组；普通代理仍使用原始节点。
-// 不修改 DNS、TUN、端口、订阅地址或凭据。
+// 移除订阅自带 DNS，由客户端全权管理。
 // US 按节点名称筛选，不检测实际出口国家，也不保证 AI 服务可用。
 // 主分流使用 GEOSITE / GEOIP；Geo 文件由客户端管理，不再逐项下载 HTTP 规则集。
 //
@@ -70,7 +70,7 @@ const CHAIN_PROXY = {
   mode: "auto",
   front: { providers: [], nodes: [] },
   exit: { providers: [], nodes: [] },
-  // 仅控制节点订阅及 DNS 仍引用的旧规则集下载，不控制 Geo 文件更新。
+  // 仅控制节点订阅下载，不控制 Geo 文件更新。
   downloadProxy: "DIRECT",
 };
 
