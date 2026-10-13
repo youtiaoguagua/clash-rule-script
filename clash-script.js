@@ -113,16 +113,15 @@ function createProxyGroups(chain) {
       proxies: ["自动选择", "US", "JP", "SG", "load-balance", ...chainChoice],
       pool,
     }),
+    // 业务分组默认跟随 PROXY 组选中的节点，也可单独切换为 US、自动选择或链式代理
+    selectGroup({ name: "Google AI", proxies: ["PROXY", "US", "自动选择", ...chainChoice], pool }),
+    selectGroup({ name: "AI", proxies: ["PROXY", "US", "自动选择", ...chainChoice], pool }),
     // 地区组同时提供该地区的自动选择和单个节点。
     selectGroup({ name: "US", proxies: ["US 自动选择"], filter: NODE_FILTERS.us, pool }),
     selectGroup({ name: "JP", proxies: ["JP 自动选择"], filter: NODE_FILTERS.jp, pool }),
     selectGroup({ name: "SG", proxies: ["SG 自动选择"], filter: NODE_FILTERS.sg, pool }),
     urlTestGroup({ name: "自动选择", pool }),
     loadBalanceGroup({ name: "load-balance", pool }),
-    // 业务分组默认跟随 PROXY 组选中的节点，也可单独切换为 US、自动选择或链式代理
-    selectGroup({ name: "Google AI", proxies: ["PROXY", "US", "自动选择", ...chainChoice], pool }),
-    selectGroup({ name: "AI", proxies: ["PROXY", "US", "自动选择", ...chainChoice], pool }),
-
     // 自动测速子组只包含节点，不引用上层分组；隐藏独立卡片，保留主组内的选项。
     urlTestGroup({ name: "US 自动选择", filter: NODE_FILTERS.us, pool }),
     urlTestGroup({ name: "JP 自动选择", filter: NODE_FILTERS.jp, pool }),
